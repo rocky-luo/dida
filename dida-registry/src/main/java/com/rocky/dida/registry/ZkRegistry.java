@@ -1,6 +1,21 @@
 package com.rocky.dida.registry;
 
-
+import com.google.common.base.Charsets;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.apache.curator.RetryPolicy;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.framework.recipes.cache.ChildData;
+import org.apache.curator.framework.recipes.cache.PathChildrenCache;
+import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent;
+import org.apache.curator.framework.recipes.cache.PathChildrenCacheListener;
+import org.apache.curator.framework.recipes.nodes.PersistentNode;
+import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.apache.zookeeper.CreateMode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.List;
@@ -16,41 +31,53 @@ public class ZkRegistry implements Registry {
     private CuratorFramework curatorFramework;
     private final static int baseSleepTimeMs = 1000; //基础睡眠时间, mills
     private final static int maxRetries = 10; //重试次数
-    private String url;
-    private String data;
-    private PersistentNode persistentNode;
     final private Map<String, PathChildrenCache> urlCacheMap = Maps.newHashMapWithExpectedSize(10);
     private Map<String, Set<NotifyCacheListener>> urlListenersMap = Maps.newHashMapWithExpectedSize(10);
+    private Map<String, PersistentNode> urlRegisterMap = Maps.newHashMapWithExpectedSize(10);
 
-    public ZkRegistry(String connectString, String url, String data) {
-        this.url = url;
-        this.data = data;
-        RetryPolicy retryPolicy = new ExponentialBackoffRetry(baseSleepTimeMs, maxRetries);
-        this.curatorFramework = CuratorFrameworkFactory.newClient(connectString, retryPolicy);
+    public ZkRegistry(CuratorFramework curatorFramework) {
+        this.curatorFramework  = curatorFramework;
         curatorFramework.start();
-        byte[] bytesData = data == null ? "".getBytes() : data.getBytes();
-        this.persistentNode = new PersistentNode(curatorFramework, CreateMode.EPHEMERAL, false, url, bytesData);
     }
 
     @Override
-    public void register() {
-        this.persistentNode.start();
-        try {
-            boolean created = persistentNode.waitForInitialCreate(3000, TimeUnit.MILLISECONDS);
-            if (!created) {
-                throw new RuntimeException("zookeeper create node failed, when create the node " + "[" + this.url + "]");
+    public void register(String url, String data) {
+        synchronized (this) {
+            PersistentNode registryNode = this.urlRegisterMap.get(url);
+            if (registryNode != null) {
+                // 如果存在,说明已经注册,则修改data数据
+                try {
+                    registryNode.setData(bytesData(data));
+                } catch (Exception e) {
+                    throw new RuntimeException(String.format("modify registered node in zookeeper failed, path:{}, data:{}",url, data));
+                }
+            }else {
+                registryNode = new PersistentNode(this.curatorFramework, CreateMode.EPHEMERAL, false, url,bytesData(data));
+                registryNode.start();
+                try {
+                    boolean created = registryNode.waitForInitialCreate(3000, TimeUnit.MILLISECONDS);
+                    if (!created) {
+                        throw new RuntimeException("zookeeper create node failed, when create the node " + "[" + url + "]");
+                    }
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
         }
     }
 
     @Override
-    public void unregister() {
-        try {
-            this.persistentNode.close();
-        } catch (IOException e) {
-            throw new RuntimeException("zookeeper stop node failed, when stop the node " + "[" + this.url + "]");
+    public void unregister(String url) {
+        synchronized (this) {
+            PersistentNode registryNode = this.urlRegisterMap.get(url);
+            if (registryNode != null) {
+                try {
+                    registryNode.close();
+                    this.urlRegisterMap.remove(url);
+                } catch (IOException e) {
+                    throw new RuntimeException("zookeeper stop node failed, when stop the node " + "[" + url + "]");
+                }
+            }
         }
     }
 
@@ -158,5 +185,10 @@ public class ZkRegistry implements Registry {
         public NotifyListener getNotifyListener() {
             return this.notifyListener;
         }
+    }
+
+
+    private byte[] bytesData(String data){
+        return data == null ? "".getBytes() : data.getBytes();
     }
 }

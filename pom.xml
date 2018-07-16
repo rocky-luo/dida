@@ -6,12 +6,14 @@
 
     <groupId>com.rocky</groupId>
     <artifactId>dida</artifactId>
+    <packaging>pom</packaging>
     <version>1.0.0-SNAPSHOT</version>
 
     <modules>
         <module>dida-admin</module>
         <module>dida-client</module>
         <module>dida-registry</module>
+        <module>dida-common</module>
     </modules>
 
     <properties>
@@ -185,7 +187,7 @@
             <dependency>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
-                <version>0.10.0</version>
+                <version>0.9.2</version>
             </dependency>
 
             <dependency>
@@ -205,6 +207,16 @@
                 <artifactId>junit</artifactId>
                 <version>4.11</version>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.quartz-scheduler</groupId>
+                <artifactId>quartz</artifactId>
+                <version>2.3.0</version>
+            </dependency>
+            <dependency>
+                <groupId>com.rocky</groupId>
+                <artifactId>dida-common</artifactId>
+                <version>1.0.0-SNAPSHOT</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
